@@ -38,71 +38,58 @@ export const model = <Schema>(modelName: string) => {
 
     static _createProxy(instance: any) {
       const handler: ProxyHandler<Model> = {
-        set(target, field: string, value) {
+        set(target, field: string, value, receiver) {
           instance._doc[field] = value
-          //check if value is array
-          const p = redis.call(
-            'JSON.SET',
-            instance._key as any,
-            '$.' + field,
-            JSON.stringify(value)
+
+          instance.appendPendingAction(
+            redis.call('JSON.SET', instance._key as any, '$.' + field, JSON.stringify(value))
           )
-          instance.appendPendingAction(p)
           return true
         },
         get(target, field: string, receiver) {
           if (instance._doc[field]) {
             const value = instance._doc[field]
             if (value && typeof value === 'object') {
-              //check array
-              if (Array.isArray(value)) {
-                //todo return array;
-              } else {
-                // todo return another proxy;
-                const nestedHandler: (
-                  nestedPath: string[]
-                ) => ProxyHandler<typeof value> = nestedPath => {
-                  return {
-                    set(t, f: string, v, r) {
-                      Reflect.set(t, f, v, r)
+              const nestedHandler: (
+                nestedPath: string[]
+              ) => ProxyHandler<typeof value> = nestedPath => {
+                return {
+                  set(t, f: string, v, r) {
+                    Reflect.set(t, f, v, r)
 
-                      if (Array.isArray(t)) {
-                        // todo make it happen only once!
-                        instance.appendPendingAction(
-                          redis.call(
-                            'JSON.SET',
-                            instance._key,
-                            '.' + [field, ...nestedPath].join('.'),
-                            JSON.stringify(t)
-                          )
+                    if (Array.isArray(t)) {
+                      // todo make it happen only once!
+                      instance.appendPendingAction(
+                        redis.call(
+                          'JSON.SET',
+                          instance._key,
+                          '.' + [field, ...nestedPath].join('.'),
+                          JSON.stringify(t)
                         )
-                      } else {
-                        instance.appendPendingAction(
-                          // @ts-ignore
-                          redis.call(
-                            'JSON.SET',
-                            instance._key,
-                            '.' + [field, ...nestedPath, f].join('.'),
-                            JSON.stringify(v)
-                          )
+                      )
+                    } else {
+                      instance.appendPendingAction(
+                        redis.call(
+                          'JSON.SET',
+                          instance._key,
+                          '.' + [field, ...nestedPath, f].join('.'),
+                          JSON.stringify(v)
                         )
-                      }
-                      // todo set redis json
-                      return true
-                    },
-                    get(t, p, r) {
-                      if (typeof p === 'symbol') return t[p]
-                      if (typeof t[p] === 'object') {
-                        // @ts-ignore
-                        return new Proxy(t[p], nestedHandler([...nestedPath, p]))
-                      }
-
-                      return t[p]
+                      )
                     }
+                    return true
+                  },
+                  get(t, p, r) {
+                    if (typeof p === 'symbol') return t[p]
+                    if (typeof t[p] === 'object') {
+                      return new Proxy(t[p], nestedHandler([...nestedPath, p]))
+                    }
+
+                    return t[p]
                   }
                 }
-                return new Proxy(value, nestedHandler([]))
               }
+              return new Proxy(value, nestedHandler([]))
             }
             return value
           }
@@ -122,7 +109,6 @@ export const model = <Schema>(modelName: string) => {
     static async findByKey(_key: string) {
       const doc = new Model(_key)
       try {
-        // @ts-ignore
         const resString = await redis.call('JSON.GET', _key as string, '.')
         const res = JSON.parse(resString as any)
         doc._doc = res

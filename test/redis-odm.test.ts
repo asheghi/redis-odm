@@ -55,7 +55,21 @@ describe('Reids-ODM', () => {
     })
   })
 
-  it('arrays works!', async () => {
+  it('array', async () => {
+    type ModelType = {
+      arr?: string[]
+    }
+    const Model = model<ModelType>()
+    const document = Model.create()
+    document.arr = []
+    document.arr.push('test')
+    await document.save()
+
+    const fetched = await Model.findByKey(document._key)
+    expect(fetched.arr).toEqual(['test'])
+  })
+
+  it('nested object/arrays works!', async () => {
     type UserType = {
       name: string
       email: string
