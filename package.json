@@ -116,5 +116,9 @@
     "tslint-config-standard": "^8.0.1",
     "typedoc": "^0.12.0",
     "typescript": "^3.0.3"
+  },
+  "dependencies": {
+    "ioredis": "^5.2.3",
+    "ulid": "^2.3.0"
   }
 }
