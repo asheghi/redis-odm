@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
     "moduleResolution": "node",
-    "target": "es5",
-    "module":"es2015",
-    "lib": ["es2015", "es2016", "es2017", "dom"],
-    "strict": true,
+    "target": "ES6",
+    "module":"CommonJS",
+    "lib": ["es2015", "es2016", "es2017"],
+    "strict": false,
     "sourceMap": true,
     "declaration": true,
     "allowSyntheticDefaultImports": true,
@@ -14,7 +14,8 @@
     "outDir": "dist/lib",
     "typeRoots": [
       "node_modules/@types"
-    ]
+    ],
+    "checkJs": false
   },
   "include": [
     "src"
