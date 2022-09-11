@@ -1,12 +1,12 @@
-// 👇️ ts-nocheck ignores all ts errors in the file
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck
-
 import Redis from "ioredis";
+import { resolve } from "path";
 import { ulid } from "ulid";
+import { z } from "zod";
+import { createDeferred, Reject, Resolve, text } from "./lib";
+
 const redis = new Redis();
 
-export const model = <Schema>(modelName: string) => {
+export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
   return class Model {
     _key: string;
     _doc: any;
@@ -101,18 +101,18 @@ export const model = <Schema>(modelName: string) => {
       };
       return new Proxy(instance, handler);
     }
-    static create(document?: Schema) {
+    static create(document?: SchemaType) {
       const instance = new Model(undefined, document);
-      return this._createProxy(instance) as Model & Schema;
+      return this._createProxy(instance) as Model & SchemaType;
     }
 
-    static async findByKey(_key: string) {
+    static async fetchByKey(_key: string) {
       const doc = new Model(_key);
       try {
         const resString = await redis.call("JSON.GET", _key as string, ".");
         const res = JSON.parse(resString as any);
         doc._doc = res;
-        return this._createProxy(doc) as Model & Schema;
+        return this._createProxy(doc) as Model & SchemaType;
       } catch (e) {
         console.error(e);
         throw new Error("docuemnt not found");
@@ -122,5 +122,101 @@ export const model = <Schema>(modelName: string) => {
       await Promise.all(this.pendingActions.values());
     }
     toObject = () => ({ ...this._doc, _key: this._key });
+
+    static async createIndex(
+      indexSchema,
+      { indexName = modelName + ":" + "default", drop = false } = {}
+    ) {
+      const args: string[] = [indexName, "ON", "JSON", "PREFIX", "1", modelName + ":", "SCHEMA"];
+      Object.keys(indexSchema).forEach((key: string) => {
+        const def = indexSchema[key];
+        let path = key;
+        if (path.startsWith("$.")) path = "$." + path;
+        const alias = def.alias || key;
+        args.push(path, "as", alias, ...def.schema);
+      });
+
+      const indexList = await redis.call("FT._LIST");
+      const exists = String(indexList).includes(indexName);
+
+      if (exists || (drop && exists)) {
+        await redis.call("FT.DROPINDEX", indexName);
+      } else {
+        await redis.call("FT.CREATE", ...args);
+      }
+
+      const makeQuery = (queryArg?: any) => {
+        const deff = createDeferred<any>();
+        let returns: any[] = [];
+        let fetchDocument = true;
+        const makeQueryString = () => {
+          if (!queryArg) return "*";
+          return "";
+        };
+
+        const execute = () => {
+          const queryString: string = makeQueryString();
+          const rest = [...returns];
+          redis.call("FT.SEARCH", indexName, queryString, ...rest).then(
+            (result) => {
+              if (Array.isArray(result)) {
+                const [count, ...documents] = result;
+                Promise.all(
+                  documents.map((it, index, arr) => {
+                    if (typeof it === "string" && typeof arr[index + 1] === "object")
+                      return undefined;
+                    if (typeof it === "string" && fetchDocument) {
+                      return this.fetchByKey(it);
+                    } else {
+                      if (returns.length === 0 && it.length === 2) {
+                        let [key, content] = it;
+                        if (key === "$") key = arr[index - 1];
+                        const doc = new this(key, JSON.parse(content));
+                        return Promise.resolve(this._createProxy(doc));
+                      } else {
+                        return Promise.resolve(it);
+                      }
+                    }
+                  })
+                ).then((computedResult) => {
+                  deff.resolve(computedResult.filter((it) => it));
+                });
+              } else {
+                deff.resolve(resolve);
+              }
+            },
+            (err) => {
+              deff.reject(err);
+            }
+          );
+        };
+        return {
+          then: (onResolve: Resolve<any>, onReject: Reject) => {
+            execute();
+            deff.then(onResolve, onReject);
+          },
+          resolve: deff.resolve,
+          reject: deff.reject,
+          noContent() {
+            returns = ["NOCONTENT"];
+            return this;
+          },
+          noFetchDocument() {
+            fetchDocument = false;
+            return this;
+          },
+          async count() {
+            const keys = await this.noContent().noFetchDocument();
+            return keys.length;
+          },
+        };
+      };
+
+      return {
+        find(query?) {
+          return makeQuery();
+        },
+      };
+    }
   };
 };
