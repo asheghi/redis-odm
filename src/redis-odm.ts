@@ -147,48 +147,52 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
 
       const makeQuery = (queryArg?: any) => {
         const deff = createDeferred<any>();
-        let returns: any[] = [];
-        let fetchDocument = true;
+        let _returns: any[] = [];
+        let _fetchDocument = true;
+        let _sortBy = [];
+
         const makeQueryString = () => {
           if (!queryArg) return "*";
+          if (typeof queryArg === "string") return queryArg;
           return "";
+        };
+
+        const handeSearchResult = (result) => {
+          if (Array.isArray(result)) {
+            const [count, ...documents] = result;
+            const transform = documents.map((it, index, arr) => {
+              if (typeof it === "string" && typeof arr[index + 1] === "object") return undefined;
+              if (typeof it === "string" && _fetchDocument) {
+                return this.fetchByKey(it);
+              } else {
+                if (_returns.length === 0 && it.length === 2) {
+                  let [key, content] = it;
+                  if (key === "$") key = arr[index - 1];
+                  const doc = new this(key, JSON.parse(content));
+                  return Promise.resolve(this._createProxy(doc));
+                } else {
+                  return Promise.resolve(it);
+                }
+              }
+            });
+            Promise.all(transform).then((computedResult) => {
+              deff.resolve(computedResult.filter((it) => it));
+            });
+          } else {
+            deff.resolve(resolve);
+          }
         };
 
         const execute = () => {
           const queryString: string = makeQueryString();
-          const rest = [...returns];
-          redis.call("FT.SEARCH", indexName, queryString, ...rest).then(
-            (result) => {
-              if (Array.isArray(result)) {
-                const [count, ...documents] = result;
-                Promise.all(
-                  documents.map((it, index, arr) => {
-                    if (typeof it === "string" && typeof arr[index + 1] === "object")
-                      return undefined;
-                    if (typeof it === "string" && fetchDocument) {
-                      return this.fetchByKey(it);
-                    } else {
-                      if (returns.length === 0 && it.length === 2) {
-                        let [key, content] = it;
-                        if (key === "$") key = arr[index - 1];
-                        const doc = new this(key, JSON.parse(content));
-                        return Promise.resolve(this._createProxy(doc));
-                      } else {
-                        return Promise.resolve(it);
-                      }
-                    }
-                  })
-                ).then((computedResult) => {
-                  deff.resolve(computedResult.filter((it) => it));
-                });
-              } else {
-                deff.resolve(resolve);
-              }
-            },
-            (err) => {
+          const rest = [..._sortBy, ..._returns];
+          console.log("execute:", queryString, ...rest);
+
+          redis
+            .call("FT.SEARCH", indexName, queryString, ...rest)
+            .then(handeSearchResult, (err) => {
               deff.reject(err);
-            }
-          );
+            });
         };
         return {
           then: (onResolve: Resolve<any>, onReject: Reject) => {
@@ -198,16 +202,20 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
           resolve: deff.resolve,
           reject: deff.reject,
           noContent() {
-            returns = ["NOCONTENT"];
+            _returns = ["NOCONTENT"];
             return this;
           },
           noFetchDocument() {
-            fetchDocument = false;
+            _fetchDocument = false;
             return this;
           },
           async count() {
             const keys = await this.noContent().noFetchDocument();
             return keys.length;
+          },
+          sortBy(field: string, direction: "asc" | "desc" = "asc") {
+            _sortBy = ['SORTBY', field, direction];
+            return this;
           },
         };
       };
@@ -215,6 +223,9 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       return {
         find(query?) {
           return makeQuery();
+        },
+        rawQuery(query: string) {
+          return makeQuery(query);
         },
       };
     }

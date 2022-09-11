@@ -14,12 +14,11 @@ describe("Reids-ODM", () => {
     await redis.flushall();
     await redis.flushdb();
   });
-  
+
   afterEach(async () => {
     await redis.flushall();
     await redis.flushdb();
   });
-
 
   afterAll(async () => {
     await redis.disconnect();
@@ -71,25 +70,29 @@ describe("Reids-ODM", () => {
     const UserSchema = z.object({
       username: z.string(),
       email: z.string(),
+      createdAt: z.number().optional(),
     });
-  
+
     type UserSchema = z.infer<typeof UserSchema>;
     const User = model<UserSchema>("accounts", UserSchema);
-    await User.create({ username: "first", email: "first@mail.com" }).save();
-    await User.create({ username: "second", email: "second@mail.com" }).save();
-    await User.create({ username: "third", email: "third@mail.com" }).save();
-  
+    await User.create({ username: "first", email: "first@mail.com", createdAt: 0 }).save();
+    await User.create({ username: "second", email: "second@mail.com", createdAt: 1 }).save();
+    await User.create({ username: "third", email: "third@mail.com", createdAt: 2 }).save();
 
     const UserIndex = await User.createIndex({
       username: IndexSchema.text(),
+      createdAt: IndexSchema.date(),
     });
     const count = await UserIndex.find().count();
     expect(count).toBe(3);
 
-    const allDocuments = await UserIndex.find();
-    
+    const allDocuments = await UserIndex.find().sortBy("createdAt");
+
     expect(allDocuments.length).toBe(3);
-    expect(allDocuments.find(it => it.username === 'first').email).toBe('first@mail.com')
+    expect(allDocuments[0].email).toBe("first@mail.com");
+
+    const resultOfRaw = await UserIndex.rawQuery("*");
+    console.log(resultOfRaw);
 
     //todo sort
   });
