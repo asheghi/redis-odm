@@ -2,6 +2,7 @@
 
 Redis Object Document Mapping for Node.js
 
+**Redis-Stack** or redis json module is required.
 
 #### Usage
 ```typescript
