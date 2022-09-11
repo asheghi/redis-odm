@@ -131,29 +131,31 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       Object.keys(indexSchema).forEach((key: string) => {
         const def = indexSchema[key];
         let path = key;
-        if (path.startsWith("$.")) path = "$." + path;
+        if (!path.startsWith("$.")) path = "$." + path;
         const alias = def.alias || key;
         args.push(path, "as", alias, ...def.schema);
       });
 
       const indexList = await redis.call("FT._LIST");
       const exists = String(indexList).includes(indexName);
+      console.log("schema:", ...args);
 
-      if (exists || (drop && exists)) {
+      if (exists) {
         await redis.call("FT.DROPINDEX", indexName);
-      } else {
-        await redis.call("FT.CREATE", ...args);
       }
+
+      await redis.call("FT.CREATE", ...args);
 
       const makeQuery = (queryArg?: any) => {
         const deff = createDeferred<any>();
-        let _returns: any[] = [];
+        let _return: any[] = [];
         let _fetchDocument = true;
+        let _limit = [];
         let _sortBy = [];
 
         const makeQueryString = () => {
           if (!queryArg) return "*";
-          if (typeof queryArg === "string") return queryArg;
+          if (typeof queryArg === "string") return `'${queryArg}'`;
           return "";
         };
 
@@ -165,7 +167,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
               if (typeof it === "string" && _fetchDocument) {
                 return this.fetchByKey(it);
               } else {
-                if (_returns.length === 0 && it.length === 2) {
+                if (_return.length === 0 && it.length === 2) {
                   let [key, content] = it;
                   if (key === "$") key = arr[index - 1];
                   const doc = new this(key, JSON.parse(content));
@@ -185,7 +187,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
 
         const execute = () => {
           const queryString: string = makeQueryString();
-          const rest = [..._sortBy, ..._returns];
+          const rest = [..._return, ..._sortBy, ..._limit, ];
           console.log("execute:", queryString, ...rest);
 
           redis
@@ -202,7 +204,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
           resolve: deff.resolve,
           reject: deff.reject,
           noContent() {
-            _returns = ["NOCONTENT"];
+            _return = ["NOCONTENT"];
             return this;
           },
           noFetchDocument() {
@@ -214,7 +216,19 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
             return keys.length;
           },
           sortBy(field: string, direction: "asc" | "desc" = "asc") {
-            _sortBy = ['SORTBY', field, direction];
+            _sortBy = ["SORTBY", field, direction.toUpperCase()];
+            return this;
+          },
+          // as name throws error!
+          select(...args: string[]) {
+            _return = ["RETURN", args.length];
+            args.forEach((field) => {
+              _return.push("$." + field, /* 'as', field */);
+            });
+            return this;
+          },
+          limit(start: number, count: number) {
+            _limit = ["LIMIT", start, count];
             return this;
           },
         };

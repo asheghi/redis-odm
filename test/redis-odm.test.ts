@@ -75,26 +75,60 @@ describe("Reids-ODM", () => {
 
     type UserSchema = z.infer<typeof UserSchema>;
     const User = model<UserSchema>("accounts", UserSchema);
+
+    const UserIndex = await User.createIndex(
+      {
+        createdAt: IndexSchema.number().sortable(),
+      },
+      //drop if you have existing index and your schema has changed
+      { drop: true, indexName: "lalalala" }
+    );
+
     await User.create({ username: "first", email: "first@mail.com", createdAt: 0 }).save();
     await User.create({ username: "second", email: "second@mail.com", createdAt: 1 }).save();
     await User.create({ username: "third", email: "third@mail.com", createdAt: 2 }).save();
 
-    const UserIndex = await User.createIndex({
-      username: IndexSchema.text(),
-      createdAt: IndexSchema.date(),
-    });
     const count = await UserIndex.find().count();
     expect(count).toBe(3);
 
-    const allDocuments = await UserIndex.find().sortBy("createdAt");
+    const limited = await UserIndex.find().limit(0, 1);
+    expect(limited.length).toBe(1);
 
-    expect(allDocuments.length).toBe(3);
-    expect(allDocuments[0].email).toBe("first@mail.com");
+    // todo fix sortby
+    const sort1 = await UserIndex.find().sortBy("createdAt", "desc");
+    const sort2 = await UserIndex.find().sortBy("createdAt", "desc");
+    const sort3 = await UserIndex.find().sortBy("createdAt", "desc");
+
+    expect(sort1).toEqual(sort2);
+    expect(sort2).toEqual(sort3);
 
     const resultOfRaw = await UserIndex.rawQuery("*");
-    console.log(resultOfRaw);
+    expect(resultOfRaw.length).toBe(3);
+  });
 
-    //todo sort
+  it("demo sortby and select", async () => {
+    const ModelSchema = z.object({
+      age: z.number(),
+      name: z.string(),
+    });
+    type ModelType = z.infer<typeof ModelSchema>;
+    const Model = model<ModelType>("model", ModelSchema);
+
+    const Index = await Model.createIndex({
+      age: IndexSchema.number().sortable(),
+    });
+
+    await Model.create({ age: 72, name: "granny" });
+    await Model.create({ age: 35, name: "mommy" });
+    await Model.create({ age: 25, name: "daddy" });
+    await Model.create({ age: 5, name: "baby" });
+
+    let names = await Index.find().sortBy("age").select("name");
+    names = names.map(([key, value]) => value);
+    expect(names).toEqual(["baby", "daddy", "mommy", "granny"]);
+    /*     names.forEach((name) => {
+      console.log(name, "shark do do dodo do do");
+    }); */
   });
 
   it("array", async () => {

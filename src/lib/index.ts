@@ -30,10 +30,6 @@ export const text = (alias?: string) => {
       this.schema.push("SORTABLE");
       return this;
     },
-    noIndex() {
-      this.schema.push("NOINDEX");
-      return this;
-    },
   };
 };
 
@@ -58,13 +54,12 @@ export const number = (alias?: string) => {
     buildSchema() {
       return this.schema;
     },
-    noIndex() {
-      this.schema.push("NOINDEX");
+    sortable() {
+      this.schema.push("SORTABLE");
       return this;
     },
   };
 };
-
 export const boolean = (alias?: string) => {
   return {
     schema: ["TAG"],
@@ -86,8 +81,8 @@ const date = (alias?: string) => {
     buildSchema() {
       return this.schema;
     },
-    noIndex() {
-      this.schema.push("NOINDEX");
+    sortable() {
+      this.schema.push("SORTABLE");
       return this;
     },
   };
