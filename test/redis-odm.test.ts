@@ -109,7 +109,6 @@ describe("Reids-ODM", () => {
   it("demo sortby and select", async () => {
     const ModelSchema = z.object({
       age: z.number(),
-      name: z.string(),
     });
     type ModelType = z.infer<typeof ModelSchema>;
     const Model = model<ModelType>("model", ModelSchema);
@@ -118,17 +117,68 @@ describe("Reids-ODM", () => {
       age: IndexSchema.number().sortable(),
     });
 
-    await Model.create({ age: 72, name: "granny" });
-    await Model.create({ age: 35, name: "mommy" });
-    await Model.create({ age: 25, name: "daddy" });
-    await Model.create({ age: 5, name: "baby" });
+    await Model.createMany([{ age: 1 }, { age: 2 }, { age: 3 }, { age: 4 }]);
+
+    const sorted = await Index.find().sortBy("age").select("age");
+    expect(sorted).toEqual([
+      ["age", "1"],
+      ["age", "2"],
+      ["age", "3"],
+      ["age", "4"],
+    ]);
+
+    const sortedReversed = await Index.find().sortBy("age", "desc").select("age");
+    expect(sortedReversed).toEqual([
+      ["age", "4"],
+      ["age", "3"],
+      ["age", "2"],
+      ["age", "1"],
+    ]);
+  });
+
+  it("demo select", async () => {
+    const ModelSchema = z.object({
+      age: z.number(),
+      name: z.string(),
+      sex: z.string(),
+    });
+    type ModelType = z.infer<typeof ModelSchema>;
+    const Model = model<ModelType>("model", ModelSchema);
+
+    const Index = await Model.createIndex({
+      age: IndexSchema.number().sortable(),
+      name: IndexSchema.string(),
+      sex: IndexSchema.string(),
+    });
+
+    await Model.create({ age: 72, name: "granny", sex: "f" });
+    await Model.create({ age: 35, name: "mommy", sex: "f" });
+    await Model.create({ age: 25, name: "daddy", sex: "m" });
+    await Model.create({ age: 5, name: "baby", sex: "m" });
 
     let names = await Index.find().sortBy("age").select("name");
-    names = names.map(([key, value]) => value);
-    expect(names).toEqual(["baby", "daddy", "mommy", "granny"]);
-    /*     names.forEach((name) => {
-      console.log(name, "shark do do dodo do do");
-    }); */
+    expect(names).toEqual([
+      ["name", "baby"],
+      ["name", "daddy"],
+      ["name", "mommy"],
+      ["name", "granny"],
+    ]);
+
+    let ages = await Index.find().sortBy("age").select("age");
+    expect(ages).toEqual([
+      ["age", "5"],
+      ["age", "25"],
+      ["age", "35"],
+      ["age", "72"],
+    ]);
+
+    let namesAndAges = await Index.find().sortBy("age").select("age", "name");
+    expect(namesAndAges).toEqual([
+      ["age", "5", "name", "baby"],
+      ["age", "25", "name", "daddy"],
+      ["age", "35", "name", "mommy"],
+      ["age", "72", "name", "granny"],
+    ]);
   });
 
   it("array", async () => {

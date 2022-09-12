@@ -106,6 +106,10 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       return this._createProxy(instance) as Model & SchemaType;
     }
 
+    static createMany(documents: SchemaType[]) {
+      return documents.map((it) => this.create(it));
+    }
+
     static async fetchByKey(_key: string) {
       const doc = new Model(_key);
       try {
@@ -156,6 +160,17 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
         const makeQueryString = () => {
           if (!queryArg) return "*";
           if (typeof queryArg === "string") return `'${queryArg}'`;
+          if (typeof queryArg === "object" && !Array.isArray(queryArg)) {
+            return (
+              "'" +
+              Object.keys(queryArg)
+                .map((key) => {
+                  return `@${key}:{${queryArg[key]}}`;
+                })
+                .join(" ") +
+              "'"
+            );
+          }
           return "";
         };
 
@@ -187,7 +202,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
 
         const execute = () => {
           const queryString: string = makeQueryString();
-          const rest = [..._return, ..._sortBy, ..._limit, ];
+          const rest = [..._return, ..._sortBy, ..._limit];
           console.log("execute:", queryString, ...rest);
 
           redis
@@ -219,11 +234,14 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
             _sortBy = ["SORTBY", field, direction.toUpperCase()];
             return this;
           },
+          // todo findout how this works?!
           // as name throws error!
           select(...args: string[]) {
-            _return = ["RETURN", args.length];
+            // todo find out who the hell this count is calculated
+            const count = 3 * args.length;
+            _return = ["RETURN", count];
             args.forEach((field) => {
-              _return.push("$." + field, /* 'as', field */);
+              _return.push("$." + field, "as", field);
             });
             return this;
           },
@@ -236,7 +254,10 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
 
       return {
         find(query?) {
-          return makeQuery();
+          return makeQuery(query);
+        },
+        findOne(query?) {
+          return makeQuery(query).limit(0, 10);
         },
         rawQuery(query: string) {
           return makeQuery(query);
