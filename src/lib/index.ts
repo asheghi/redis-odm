@@ -21,6 +21,7 @@ export function createDeferred<T = void>(): IDeferred<T> {
 
 export const text = (alias?: string) => {
   return {
+    name: "text",
     schema: ["TEXT"],
     alias,
     buildSchema() {
@@ -35,6 +36,7 @@ export const text = (alias?: string) => {
 
 export const string = (alias?: string) => {
   return {
+    name: "string",
     schema: ["TAG"],
     alias,
     buildSchema() {
@@ -49,6 +51,7 @@ export const string = (alias?: string) => {
 
 export const number = (alias?: string) => {
   return {
+    name: "number",
     schema: ["NUMERIC"],
     alias,
     buildSchema() {
@@ -62,6 +65,7 @@ export const number = (alias?: string) => {
 };
 export const boolean = (alias?: string) => {
   return {
+    name: "boolean",
     schema: ["TAG"],
     alias,
     buildSchema() {
@@ -76,6 +80,7 @@ export const boolean = (alias?: string) => {
 
 const date = (alias?: string) => {
   return {
+    name: "date",
     schema: ["NUMERIC"],
     alias,
     buildSchema() {

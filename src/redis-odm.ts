@@ -5,7 +5,16 @@ import { z } from "zod";
 import { createDeferred, Reject, Resolve, text } from "./lib";
 
 const redis = new Redis();
-
+type QueryValueType =
+  | "string"
+  | "number"
+  | "bigint"
+  | "boolean"
+  | "symbol"
+  | "undefined"
+  | "object"
+  | "function"
+  | "array";
 export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
   return class Model {
     _key: string;
@@ -37,6 +46,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
     }
 
     static _createProxy(instance: any) {
+      if (!instance) throw new Error("cannot create proxy for null");
       const handler: ProxyHandler<Model> = {
         set(target, field: string, value, receiver) {
           instance._doc[field] = value;
@@ -131,6 +141,8 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       indexSchema,
       { indexName = modelName + ":" + "default", drop = false } = {}
     ) {
+      console.log("create index called with", indexSchema);
+
       const args: string[] = [indexName, "ON", "JSON", "PREFIX", "1", modelName + ":", "SCHEMA"];
       Object.keys(indexSchema).forEach((key: string) => {
         const def = indexSchema[key];
@@ -141,11 +153,19 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       });
 
       const indexList = await redis.call("FT._LIST");
+      console.log("index list:", indexList);
+
       const exists = String(indexList).includes(indexName);
+      console.log("exists:", exists);
+
       console.log("schema:", ...args);
 
-      if (exists) {
-        await redis.call("FT.DROPINDEX", indexName);
+      try {
+        if (exists) {
+          await redis.call("FT.DROPINDEX", indexName);
+        }
+      } catch (ignored) {
+        //
       }
 
       await redis.call("FT.CREATE", ...args);
@@ -165,7 +185,46 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
               "'" +
               Object.keys(queryArg)
                 .map((key) => {
-                  return `@${key}:{${queryArg[key]}}`;
+                  if (!indexSchema[key]) return "";
+                  let v = "*";
+                  const fieldType = indexSchema[key].name;
+                  const value = queryArg[key];
+                  let valueType: QueryValueType = typeof value;
+                  if (Array.isArray(value)) valueType = "array";
+                  console.log("value:", indexSchema[key], fieldType, value, valueType);
+
+                  switch (fieldType + "-" + valueType) {
+                    case "string-string":
+                      v = "{" + value + "}";
+                      break;
+                    case "string-array":
+                      v = "{ " + value.join(" | ") + " }";
+                      break;
+                    case "text-string": {
+                      v = value;
+                      break;
+                    }
+                    case "text-array": {
+                      v = "(" + value.join("|") + ")";
+                      break;
+                    }
+                    case "number-string":
+                    case "number-number":
+                    case "date-number":
+                    case "date-string": {
+                      v = "[" + value + " " + value + "]";
+                      break;
+                    }
+                    case "number-array":
+                    case "date-array": {
+                      const [start, end] = value;
+                      v = "[" + start + " " + end + "]";
+                      break;
+                    }
+                    default:
+                      break;
+                  }
+                  return `@${key}:${v}`;
                 })
                 .join(" ") +
               "'"
@@ -257,7 +316,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
           return makeQuery(query);
         },
         findOne(query?) {
-          return makeQuery(query).limit(0, 10);
+          return makeQuery(query).limit(0, 1);
         },
         rawQuery(query: string) {
           return makeQuery(query);
