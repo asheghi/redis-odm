@@ -122,9 +122,11 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
     }
 
     static async fetchByKey(_key: string) {
+
       const doc = new Model(_key);
       try {
         const resString = await redis.call("JSON.GET", _key as string, ".");
+        if (!resString) throw new Error("empty response");
         const res = JSON.parse(resString as any);
         doc._doc = res;
         return this._createProxy(doc) as Model & SchemaType;
