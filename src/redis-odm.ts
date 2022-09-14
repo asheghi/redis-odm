@@ -24,6 +24,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       const hadKey = _key;
       this._key = _key ?? modelName + ":" + ulid();
       this._doc = document;
+      if (!this._doc._key) this._doc._key = this._key;
 
       if (!hadKey) {
         const createPromise = redis.call(
@@ -31,7 +32,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
           this._key,
           "$",
           // ts-ignore
-          document ? JSON.stringify(document) : "{}"
+          JSON.stringify(this._doc)
         );
         this.appendPendingAction(createPromise);
       }
@@ -141,8 +142,6 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       indexSchema,
       { indexName = modelName + ":" + "default", drop = false } = {}
     ) {
-      console.log("create index called with", indexSchema);
-
       const args: string[] = [indexName, "ON", "JSON", "PREFIX", "1", modelName + ":", "SCHEMA"];
       Object.keys(indexSchema).forEach((key: string) => {
         const def = indexSchema[key];
@@ -153,12 +152,8 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       });
 
       const indexList = await redis.call("FT._LIST");
-      console.log("index list:", indexList);
 
       const exists = String(indexList).includes(indexName);
-      console.log("exists:", exists);
-
-      console.log("schema:", ...args);
 
       try {
         if (exists) {
@@ -179,6 +174,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
 
         const makeQueryString = () => {
           if (!queryArg) return "*";
+          if (typeof queryArg === "object" && !Object.keys(queryArg).length) return "*";
           if (typeof queryArg === "string") return `'${queryArg}'`;
           if (typeof queryArg === "object" && !Array.isArray(queryArg)) {
             return (
@@ -191,7 +187,6 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
                   const value = queryArg[key];
                   let valueType: QueryValueType = typeof value;
                   if (Array.isArray(value)) valueType = "array";
-                  console.log("value:", indexSchema[key], fieldType, value, valueType);
 
                   switch (fieldType + "-" + valueType) {
                     case "string-string":
@@ -236,7 +231,13 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
         const handeSearchResult = (result) => {
           if (Array.isArray(result)) {
             const [count, ...documents] = result;
+
             const transform = documents.map((it, index, arr) => {
+              if (arr[index][2] === "$") {
+                const content = JSON.parse(arr[index][3]);
+                const doc = new this(content._key, content);
+                return Promise.resolve(this._createProxy(doc));
+              }
               if (typeof it === "string" && typeof arr[index + 1] === "object") return undefined;
               if (typeof it === "string" && _fetchDocument) {
                 return this.fetchByKey(it);
@@ -262,7 +263,6 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
         const execute = () => {
           const queryString: string = makeQueryString();
           const rest = [..._return, ..._sortBy, ..._limit];
-          console.log("execute:", queryString, ...rest);
 
           redis
             .call("FT.SEARCH", indexName, queryString, ...rest)
@@ -279,6 +279,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
           reject: deff.reject,
           noContent() {
             _return = ["NOCONTENT"];
+            _fetchDocument = false;
             return this;
           },
           noFetchDocument() {
@@ -315,8 +316,9 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
         find(query?) {
           return makeQuery(query);
         },
-        findOne(query?) {
-          return makeQuery(query).limit(0, 1);
+        async findOne(query?) {
+          const [first] = await makeQuery(query).limit(0, 1);
+          return Promise.resolve(first);
         },
         rawQuery(query: string) {
           return makeQuery(query);
