@@ -209,19 +209,29 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
                   let valueType: QueryValueType = typeof value;
                   if (Array.isArray(value)) valueType = "array";
 
+                  const matchPunctuation = /[,.<>{}[\]"':;!@#$%^&()\-+=~|]/g;
+
                   switch (fieldType + "-" + valueType) {
                     case "string-string":
-                      v = "{" + value + "}";
+                      v = "{" + value.replace(matchPunctuation, "\\$&") + "}";
                       break;
                     case "string-array":
-                      v = "{ " + value.join(" | ") + " }";
+                      v =
+                        "{ " +
+                        value
+                          .map((it) => String(it).replace(matchPunctuation, "\\$&"))
+                          .join(" | ") +
+                        " }";
                       break;
                     case "text-string": {
-                      v = value;
+                      v = value.replace(matchPunctuation, "\\$&");
                       break;
                     }
                     case "text-array": {
-                      v = "(" + value.join("|") + ")";
+                      v =
+                        "(" +
+                        value.map((it) => String(it).replace(matchPunctuation, "\\$&")).join("|") +
+                        ")";
                       break;
                     }
                     case "number-string":
@@ -240,6 +250,7 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
                     default:
                       break;
                   }
+
                   return `@${key}:${v}`;
                 })
                 .join(" ") +
