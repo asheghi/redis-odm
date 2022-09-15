@@ -98,6 +98,12 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
 
                     return t[p];
                   },
+                  deleteProperty(t, p) {
+                    instance.appendPendingAction(
+                      redis.call("JSON.DEL", instance._key, "$." + [field, ...nestedPath].join("."))
+                    );
+                    return Reflect.deleteProperty(t, p);
+                  },
                 };
               };
               return new Proxy(value, nestedHandler([]));
@@ -108,6 +114,11 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
             return instance[field];
           }
           return undefined;
+        },
+        deleteProperty(target, p: string) {
+          instance.appendPendingAction(redis.call("JSON.DEL", instance._key, "$." + p));
+          delete instance._doc[p];
+          return true;
         },
       };
       return new Proxy(instance, handler);
@@ -121,8 +132,11 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       return documents.map((it) => this.create(it));
     }
 
-    static async fetchByKey(_key: string) {
+    static async deleteByKey(key: string) {
+      return redis.call("JSON.DEL", key, "$");
+    }
 
+    static async fetchByKey(_key: string) {
       const doc = new Model(_key);
       try {
         const resString = await redis.call("JSON.GET", _key as string, ".");
@@ -137,6 +151,9 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
     }
     async save() {
       await Promise.all(this.pendingActions.values());
+    }
+    async delete() {
+      await redis.call("JSON.DEL", this._key, "$");
     }
     toObject = () => ({ ...this._doc, _key: this._key });
 
@@ -164,6 +181,8 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
       } catch (ignored) {
         //
       }
+
+      const deleteByKey = this.deleteByKey;
 
       await redis.call("FT.CREATE", ...args);
 
@@ -321,6 +340,16 @@ export const model = <SchemaType>(modelName: string, schema: z.ZodTypeAny) => {
         async findOne(query?) {
           const [first] = await makeQuery(query).limit(0, 1);
           return Promise.resolve(first);
+        },
+        async deleteOne(query?) {
+          const [first] = await makeQuery(query).limit(0, 1).noContent();
+          console.log("key:", first);
+          return deleteByKey(first);
+        },
+        async deleteMany(query?) {
+          const keys = await makeQuery(query).noContent();
+          console.log("key:", keys);
+          return Promise.all(keys.map((key) => deleteByKey(key)));
         },
         rawQuery(query: string) {
           return makeQuery(query);
