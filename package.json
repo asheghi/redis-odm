@@ -1,6 +1,6 @@
 {
   "name": "redis-odm",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "redis object document mapping",
   "keywords": [],
   "main": "dist/redis-odm.js",
